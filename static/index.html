@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ohio Trails Explorer</title>
+  
+  <!-- Leaflet.js for mapping -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+  
+  <!-- Dexie.js for local storage -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie/dist/dexie.min.js"></script>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    #container {
+      display: flex;
+      height: 100vh;
+    }
+    
+    #sidebar {
+      width: 350px;
+      background: white;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+    
+    #header {
+      padding: 20px;
+      background: linear-gradient(135deg, #2d5016 0%, #4a7c2c 100%);
+      color: white;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    #header h1 {
+      font-size: 1.8rem;
+      margin-bottom: 4px;
+    }
+    
+    #header p {
+      font-size: 0.85rem;
+      opacity: 0.9;
+    }
+    
+    .controls {
+      padding: 15px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    
+    .controls input {
+      flex: 1;
+      min-width: 200px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    
+    .controls button {
+      padding: 10px 16px;
+      background: #2d5016;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    
+    .controls button:hover {
+      background: #1f3a0f;
+    }
+    
+    .controls button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    #results {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+    }
+    
+    .trail-item {
+      padding: 15px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .trail-item:hover {
+      background: #f5f5f5;
+      border-left: 4px solid #2d5016;
+      padding-left: 11px;
+    }
+    
+    .trail-item.selected {
+      background: #e8f0e0;
+      border-left: 4px solid #2d5016;
+      padding-left: 11px;
+    }
+    
+    .trail-name {
+      font-weight: 600;
+      color: #2d5016;
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+    
+    .trail-meta {
+      font-size: 0.85rem;
+      color: #666;
+      line-height: 1.4;
+    }
+    
+    #map {
+      flex: 1;
+      background: #f0f0f0;
+    }
+    
+    .status-bar {
+      padding: 10px 15px;
+      background: #f9f9f9;
+      border-top: 1px solid #ddd;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    
+    .loading { color: #0066cc; }
+    .error { color: #d32f2f; }
+    .success { color: #388e3c; }
+    
+    /* Leaflet custom styles */
+    .leaflet-container {
+      background: #fff;
+    }
+    
+    .trail-popup {
+      max-width: 250px;
+    }
+    
+    .trail-popup h3 {
+      margin: 0 0 8px 0;
+      color: #2d5016;
+      font-size: 1rem;
+    }
+    
+    .trail-popup p {
+      margin: 4px 0;
+      font-size: 0.9rem;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <!-- Sidebar with search and results -->
+    <div id="sidebar">
+      <div id="header">
+        <h1>🥾 Ohio Trails</h1>
+        <p>Interactive trail explorer</p>
+      </div>
+      
+      <div class="controls">
+        <input id="searchInput" type="text" placeholder="Search trails..." />
+        <button id="loadBtn">Load Trails</button>
+      </div>
+      
+      <div id="results"></div>
+      
+      <div class="status-bar">
+        <span id="status">Ready to load Ohio trails</span>
+      </div>
+    </div>
+    
+    <!-- Map -->
+    <div id="map"></div>
+  </div>
+
+  <script>
+    // Initialize Dexie database
+    const db = new Dexie('OhioTrailsDB');
+    db.version(1).stores({
+      trails: '++id, name'
+    });
+
+    // Leaflet map
+    let map;
+    let trailsGeoJSON;
+    let geoJSONLayer;
+    let trailsData = [];
+    let selectedTrail = null;
+
+    // DOM elements
+    const searchInput = document.getElementById('searchInput');
+    const loadBtn = document.getElementById('loadBtn');
+    const resultsDiv = document.getElementById('results');
+    const statusSpan = document.getElementById('status');
+
+    // Initialize map
+    function initMap() {
+      map = L.map('map').setView([40.4, -82.9], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(map);
+    }
+
+    // Update status message
+    function updateStatus(message, type = 'normal') {
+      statusSpan.textContent = message;
+      statusSpan.className = type;
+      console.log(`[${type}] ${message}`);
+    }
+
+    // Load Ohio trails from backend
+    async function loadTrails() {
+      loadBtn.disabled = true;
+      updateStatus('Fetching Ohio trails from USGS...', 'loading');
+
+      try {
+        const response = await fetch('/api/ohio-trails');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const geojson = await response.json();
+        trailsData = geojson.features || [];
+        
+        console.log(`Loaded ${trailsData.length} trails`);
+        
+        // Store in Dexie
+        if (trailsData.length > 0) {
+          await db.trails.clear();
+          const trails = trailsData.map((f, i) => ({
+            id: i,
+            name: f.properties?.NAME || `Trail ${i + 1}`,
+            geometry: f.geometry,
+            properties: f.properties
+          }));
+          await db.trails.bulkPut(trails);
+        }
+        
+        // Display on map
+        displayTrailsOnMap(geojson);
+        displayTrailsList(trailsData);
+        
+        updateStatus(`✓ Loaded ${trailsData.length} Ohio trails`, 'success');
+      } catch (err) {
+        console.error('Error loading trails:', err);
+        updateStatus(`✗ Error: ${err.message}`, 'error');
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    // Display trails on map
+    function displayTrailsOnMap(geojson) {
+      if (geoJSONLayer) {
+        map.removeLayer(geoJSONLayer);
+      }
+
+      geoJSONLayer = L.geoJSON(geojson, {
+        style: {
+          color: '#2d5016',
+          weight: 3,
+          opacity: 0.7,
+          lineCap: 'round',
+          lineJoin: 'round'
+        },
+        pointToLayer: (feature, latlng) => {
+          return L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: '#2d5016',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.8
+          });
+        },
+        onEachFeature: (feature, layer) => {
+          const name = feature.properties?.NAME || 'Unnamed Trail';
+          const popup = L.popup().setContent(`
+            <div class="trail-popup">
+              <h3>${name}</h3>
+              ${feature.properties?.CATEGORY ? `<p><strong>Type:</strong> ${feature.properties.CATEGORY}</p>` : ''}
+              ${feature.properties?.ADMINTYPE ? `<p><strong>Admin:</strong> ${feature.properties.ADMINTYPE}</p>` : ''}
+            </div>
+          `);
+          layer.bindPopup(popup);
+          
+          layer.on('click', () => {
+            selectTrail(feature, layer);
+          });
+        }
+      }).addTo(map);
+
+      // Fit map to trails bounds
+      if (geoJSONLayer) {
+        map.fitBounds(geoJSONLayer.getBounds(), { padding: [50, 50] });
+      }
+    }
+
+    // Display trails in sidebar list
+    function displayTrailsList(trails) {
+      resultsDiv.innerHTML = '';
+      
+      if (trails.length === 0) {
+        resultsDiv.innerHTML = '<div style="padding: 20px; color: #999;">No trails found</div>';
+        return;
+      }
+
+      trails.slice(0, 100).forEach((feature, idx) => {
+        const name = feature.properties?.NAME || `Trail ${idx + 1}`;
+        const category = feature.properties?.CATEGORY || 'Unknown';
+        
+        const div = document.createElement('div');
+        div.className = 'trail-item';
+        div.innerHTML = `
+          <div class="trail-name">${name}</div>
+          <div class="trail-meta">
+            <div>Type: ${category}</div>
+            ${feature.properties?.ADMINTYPE ? `<div>Admin: ${feature.properties.ADMINTYPE}</div>` : ''}
+          </div>
+        `;
+        
+        div.addEventListener('click', () => {
+          selectTrail(feature, null);
+        });
+        
+        resultsDiv.appendChild(div);
+      });
+    }
+
+    // Select and highlight a trail
+    function selectTrail(feature, layer) {
+      selectedTrail = feature;
+      
+      // Update sidebar highlight
+      document.querySelectorAll('.trail-item').forEach(item => {
+        item.classList.remove('selected');
+      });
+      event.target.closest('.trail-item')?.classList.add('selected');
+      
+      // Show on map
+      if (layer) {
+        layer.openPopup();
+      }
+    }
+
+    // Search trails
+    searchInput.addEventListener('keyup', (e) => {
+      const query = e.target.value.toLowerCase();
+      
+      if (query.length === 0) {
+        displayTrailsList(trailsData);
+        return;
+      }
+      
+      const filtered = trailsData.filter(f => {
+        const name = (f.properties?.NAME || '').toLowerCase();
+        const category = (f.properties?.CATEGORY || '').toLowerCase();
+        return name.includes(query) || category.includes(query);
+      });
+      
+      displayTrailsList(filtered);
+    });
+
+    // Load button
+    loadBtn.addEventListener('click', loadTrails);
+
+    // Initialize on load
+    initMap();
+    
+    // Auto-load trails on startup
+    window.addEventListener('load', () => {
+      setTimeout(loadTrails, 500);
+    });
+  </script>
+</body>
+</html>

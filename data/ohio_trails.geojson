@@ -1,0 +1,10 @@
+{
+  "total": 0,
+  "took": "2ms",
+  "selflink": {
+    "rel": "self",
+    "url": "https://www.sciencebase.gov/catalog/items/get?filter=tags%3DNational+Digital+Trails&format=geojson&max=20"
+  },
+  "type": "FeatureCollection",
+  "features": []
+}
