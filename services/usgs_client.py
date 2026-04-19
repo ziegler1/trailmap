@@ -1,22 +1,41 @@
+raise SystemExit("USGS fetch disabled — using local file instead.")
 import requests
 import json
 import os
 
-URL = "https://www.sciencebase.gov/catalog/items?filter=tags=National Digital Trails&format=geojson"
+OUTPUT_FILE = "data/ohio_trails.geojson"
 
-DATA_PATH = os.path.join("data", "ohio_trails.geojson")
+# Ohio bounding box
+params = {
+    "f": "geojson",
+    "where": "1=1",
+    "geometryType": "esriGeometryEnvelope",
+    "spatialRel": "esriSpatialRelIntersects",
+    "geometry": json.dumps({
+        "xmin": -84.82,
+        "ymin": 38.40,
+        "xmax": -80.52,
+        "ymax": 41.98,
+        "spatialReference": {"wkid": 4326}
+    }),
+    "outFields": "*",
+    "returnGeometry": "true"
+}
 
-def fetch_and_save_trails():
-    print("Fetching USGS trail data...")
-    r = requests.get(URL)
-    r.raise_for_status()
-    data = r.json()
+URL = "https://services.nationalmap.gov/arcgis/rest/services/USGSTrails/MapServer/0/query"
 
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+print("Fetching Ohio trails from USGS…")
+response = requests.get(URL, params=params)
 
-    print("Saved:", DATA_PATH)
+if response.status_code != 200:
+    print("Error:", response.status_code, response.text)
+    exit()
 
-if __name__ == "__main__":
-    fetch_and_save_trails()
+data = response.json()
+
+os.makedirs("data", exist_ok=True)
+
+with open(OUTPUT_FILE, "w") as f:
+    json.dump(data, f)
+
+print(f"Saved {len(data.get('features', []))} trails to {OUTPUT_FILE}")

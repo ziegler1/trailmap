@@ -1,10 +1,23 @@
 {
-  "total": 0,
-  "took": "2ms",
-  "selflink": {
-    "rel": "self",
-    "url": "https://www.sciencebase.gov/catalog/items/get?filter=tags%3DNational+Digital+Trails&format=geojson&max=20"
-  },
   "type": "FeatureCollection",
-  "features": []
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sample Ohio Trail",
+        "source": "SampleData",
+        "length_miles": 1.2
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-83.0159, 39.9687],
+          [-83.0145, 39.9698],
+          [-83.0132, 39.9710],
+          [-83.0120, 39.9722],
+          [-83.0108, 39.9735]
+        ]
+      }
+    }
+  ]
 }
